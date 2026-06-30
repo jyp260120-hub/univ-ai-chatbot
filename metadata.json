@@ -1,0 +1,6 @@
+{
+  "name": "대학 AI 챗봇 및 실시간 상담 시스템",
+  "description": "학사 정보 제공용 AI 챗봇과 AES-256-GCM 학생인증 및 실시간 상담원 연결 기능을 제공하는 대학 맞춤형 하이브리드 챗봇 시스템",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
