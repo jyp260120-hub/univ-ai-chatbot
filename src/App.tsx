@@ -21,6 +21,13 @@ export default function App() {
     standaloneMode === "student" ? "student" : "student"
   );
   const [showRoleSelect, setShowRoleSelect] = useState(standaloneMode !== "student");
+  const [showLogin, setShowLogin] = useState(false);
+  const [loginTargetRole, setLoginTargetRole] = useState<"counselor" | "admin">("counselor");
+  const [loginId, setLoginId] = useState("");
+  const [loginPw, setLoginPw] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [staffInfo, setStaffInfo] = useState<{ name: string; role: string; token: string } | null>(null);
   
   // Quick FAQs Accordion state
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
@@ -41,11 +48,52 @@ export default function App() {
   };
 
   const handleRoleSelect = (selectedRole: "student" | "counselor" | "admin") => {
-    setRole(selectedRole);
-    setShowRoleSelect(false);
-    if (selectedRole === "student") setViewMode("student");
-    else if (selectedRole === "counselor") setViewMode("counselor");
-    else setViewMode("split");
+    if (selectedRole === "student") {
+      setRole("student");
+      setShowRoleSelect(false);
+      setViewMode("student");
+    } else {
+      setLoginTargetRole(selectedRole);
+      setShowLogin(true);
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    setLoginError("");
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: loginId, password: loginPw }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setLoginError(data.error || "로그인에 실패했습니다.");
+      } else if (data.role !== loginTargetRole && data.role !== "admin") {
+        setLoginError("해당 역할에 접근 권한이 없습니다.");
+      } else {
+        setStaffInfo(data);
+        setRole(data.role);
+        setShowRoleSelect(false);
+        setShowLogin(false);
+        setViewMode(data.role === "admin" ? "split" : "counselor");
+      }
+    } catch {
+      setLoginError("서버 통신에 실패했습니다.");
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    if (staffInfo?.token) {
+      fetch("/api/auth/logout", { method: "POST", headers: { Authorization: "Bearer " + staffInfo.token } });
+    }
+    setStaffInfo(null);
+    setRole("student");
+    setShowRoleSelect(true);
   };
 
   // Role-based access: students see only student, counselors see only counselor, admins see split+all
@@ -92,6 +140,42 @@ export default function App() {
     );
   }
 
+  // Login form for counselor/admin
+  if (showLogin) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
+        <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl space-y-6">
+          <div className="text-center">
+            <div className="w-14 h-14 bg-[#861F41] rounded-xl flex items-center justify-center mx-auto mb-3">
+              <Users className="w-7 h-7 text-white" />
+            </div>
+            <h2 className="text-lg font-extrabold text-slate-900">{loginTargetRole === "admin" ? "관리자" : "상담사"} 로그인</h2>
+            <p className="text-sm text-slate-500 mt-1">계정 정보를 입력하세요</p>
+          </div>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">아이디</label>
+              <input type="text" required value={loginId} onChange={e => setLoginId(e.target.value)}
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#861F41]" placeholder="아이디 입력" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">비밀번호</label>
+              <input type="password" required value={loginPw} onChange={e => setLoginPw(e.target.value)}
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#861F41]" placeholder="비밀번호 입력" />
+            </div>
+            {loginError && <div className="p-2.5 bg-rose-50 text-rose-600 rounded-lg text-xs">{loginError}</div>}
+            <button type="submit" disabled={loginLoading}
+              className="w-full py-2.5 bg-[#861F41] hover:bg-[#6d1935] text-white font-semibold rounded-lg text-sm transition-colors cursor-pointer">
+              {loginLoading ? "로그인 중..." : "로그인"}
+            </button>
+          </form>
+          <button onClick={() => { setShowLogin(false); setLoginError(""); }}
+            className="w-full text-xs text-slate-500 hover:text-slate-700 text-center cursor-pointer">뒤로가기</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div id="app-root-container" className="min-h-screen bg-slate-50 flex flex-col font-sans overflow-x-hidden text-slate-800">
       
@@ -128,7 +212,7 @@ export default function App() {
             </button>
           )}
           <button
-            onClick={() => setViewMode("student")}
+            onClick={() => { setViewMode("student"); }}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
               viewMode === "student" 
                 ? "bg-[#861F41] text-white shadow-sm" 
@@ -151,10 +235,13 @@ export default function App() {
               상담사 워크스페이스
             </button>
           )}
-          <button onClick={() => { setRole("student"); setShowRoleSelect(true); }}
-            className="px-2 py-1.5 text-[10px] text-slate-500 hover:text-slate-700 font-medium transition-colors cursor-pointer">
-            로그아웃
-          </button>
+          <div className="flex items-center gap-2 ml-2 pl-2 border-l border-slate-200">
+            {staffInfo && <span className="text-[10px] text-slate-500">{staffInfo.name} ({staffInfo.role === "admin" ? "관리자" : "상담사"})</span>}
+            <button onClick={handleLogout}
+              className="px-2 py-1 text-[10px] text-slate-500 hover:text-[#861F41] font-medium transition-colors cursor-pointer">
+              로그아웃
+            </button>
+          </div>
         </div>
       </header>
 

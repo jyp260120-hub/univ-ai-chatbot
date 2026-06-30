@@ -3,12 +3,73 @@ import path from "path";
 import crypto from "crypto";
 import { GoogleGenAI } from "@google/genai";
 import { createServer as createViteServer } from "vite";
+import type { Request, Response, NextFunction } from "express";
 import { Message, StudentInfo, ChatSession, EncryptionLog, AcademicRule } from "./src/types.js";
 
 const app = express();
 const PORT = 3000;
 
 app.use(express.json());
+
+// Staff accounts (상담사/관리자 로그인용)
+const staffAccounts = [
+  { username: "counselor01", password: "gpa3825", name: "김상담", role: "counselor" as const },
+  { username: "counselor02", password: "gpa3826", name: "이상담", role: "counselor" as const },
+  { username: "admin", password: "gpaadmin", name: "관리자", role: "admin" as const },
+];
+
+// Session tokens map
+const activeTokens = new Map<string, { username: string; name: string; role: string; expiresAt: number }>();
+
+function generateToken(username: string): string {
+  return crypto.randomUUID() + "-" + crypto.randomUUID();
+}
+
+// Auth middleware
+function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "인증이 필요합니다." });
+  }
+  const token = authHeader.slice(7);
+  const session = activeTokens.get(token);
+  if (!session || session.expiresAt < Date.now()) {
+    activeTokens.delete(token);
+    return res.status(401).json({ error: "세션이 만료되었습니다. 다시 로그인하세요." });
+  }
+  (req as any).staff = session;
+  next();
+}
+
+// Staff login
+app.post("/api/auth/login", (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: "아이디와 비밀번호를 입력하세요." });
+  }
+  const account = staffAccounts.find((a) => a.username === username && a.password === password);
+  if (!account) {
+    return res.status(401).json({ error: "아이디 또는 비밀번호가 일치하지 않습니다." });
+  }
+  const token = generateToken(username);
+  activeTokens.set(token, { username, name: account.name, role: account.role, expiresAt: Date.now() + 24 * 60 * 60 * 1000 });
+  res.json({ token, name: account.name, role: account.role });
+});
+
+// Verify token
+app.get("/api/auth/verify", authMiddleware, (req, res) => {
+  const staff = (req as any).staff;
+  res.json({ valid: true, name: staff.name, role: staff.role });
+});
+
+// Logout
+app.post("/api/auth/logout", (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    activeTokens.delete(authHeader.slice(7));
+  }
+  res.json({ success: true });
+});
 
 // AES-256-GCM Configuration
 const algorithm = "aes-256-gcm";
